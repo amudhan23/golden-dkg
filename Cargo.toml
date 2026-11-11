@@ -1,0 +1,15 @@
+[package]
+name = "golden-dkg"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-ff = "0.5"
+ark-ec = "0.5"
+ark-relations = "0.5"
+ark-r1cs-std = { version = "0.5", default-features = false }
+ark-bls12-381 = "0.5"
+ark-ed-on-bls12-381-bandersnatch = "0.5"
+ark-std = "0.5"
+ark-serialize = "0.5"
+bulletproofs_ipa = { git = "https://github.com/amudhan23/bulletproofrust", branch = "master" }
