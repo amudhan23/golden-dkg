@@ -120,7 +120,15 @@ mod tests {
 
         // Run scalar_mul
         let (_, _, result_x, result_y) =
-            scalar_mul(cs.clone(), &bits, &bit_values, base_x, base_y, a, d).unwrap();
+            {
+                let base_x_var = cs.new_input_variable(|| Ok(base_x)).unwrap();
+                let base_y_var = cs.new_input_variable(|| Ok(base_y)).unwrap();
+                scalar_mul(
+                    cs.clone(), &bits, &bit_values,
+                    base_x_var, base_y_var, base_x, base_y, a, d,
+                )
+                .unwrap()
+            };
 
         // Check the result matches native computation
         assert_eq!(
@@ -165,7 +173,15 @@ mod tests {
         let bits = bit_decompose(cs.clone(), k).unwrap();
 
         let (_, _, result_x, result_y) =
-            scalar_mul(cs.clone(), &bits, &bit_values, base_x, base_y, a, d).unwrap();
+            {
+                let base_x_var = cs.new_input_variable(|| Ok(base_x)).unwrap();
+                let base_y_var = cs.new_input_variable(|| Ok(base_y)).unwrap();
+                scalar_mul(
+                    cs.clone(), &bits, &bit_values,
+                    base_x_var, base_y_var, base_x, base_y, a, d,
+                )
+                .unwrap()
+            };
 
         // 1 * G = G
         assert_eq!(result_x, base_x, "1*G should give G.x");
@@ -202,7 +218,15 @@ mod tests {
         let bits = bit_decompose(cs.clone(), k_fq).unwrap();
 
         let (_, _, result_x, result_y) =
-            scalar_mul(cs.clone(), &bits, &bit_values, base_x, base_y, a, d).unwrap();
+            {
+                let base_x_var = cs.new_input_variable(|| Ok(base_x)).unwrap();
+                let base_y_var = cs.new_input_variable(|| Ok(base_y)).unwrap();
+                scalar_mul(
+                    cs.clone(), &bits, &bit_values,
+                    base_x_var, base_y_var, base_x, base_y, a, d,
+                )
+                .unwrap()
+            };
 
         assert_eq!(result_x, expected_affine.x, "random scalar_mul x mismatch");
         assert_eq!(result_y, expected_affine.y, "random scalar_mul y mismatch");
