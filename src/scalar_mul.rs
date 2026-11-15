@@ -10,6 +10,8 @@ pub fn scalar_mul<F: PrimeField>(
     cs: ConstraintSystemRef<F>,
     bits: &[Variable], // from bit_decompose, LSB first
     bit_vals: &[F],    // the actual bit values
+    base_x_var: Variable,
+    base_y_var: Variable,
     base_x: F,
     base_y: F, // the base point P (public, known)
     a: F,
@@ -20,8 +22,12 @@ pub fn scalar_mul<F: PrimeField>(
     let mut acc_x_var = cs.new_witness_variable(|| Ok(acc_x_val))?;
     let mut acc_y_var = cs.new_witness_variable(|| Ok(acc_y_val))?;
 
-    let p_var_x = cs.new_witness_variable(|| Ok(base_x))?;
-    let p_var_y = cs.new_witness_variable(|| Ok(base_y))?;
+    cs.enforce_constraint(lc!() + acc_x_var, lc!() + Variable::One, lc!())?;
+    cs.enforce_constraint(
+        lc!() + acc_y_var,
+        lc!() + Variable::One,
+        lc!() + Variable::One,
+    )?;
 
     for i in (0..bits.len()).rev() {
         let (dbl_x_var, dbl_y_var, dbl_x_val, dbl_y_val) = edwards_add(
@@ -42,8 +48,8 @@ pub fn scalar_mul<F: PrimeField>(
             cs.clone(),
             dbl_x_var,
             dbl_y_var,
-            p_var_x,
-            p_var_y,
+            base_x_var,
+            base_y_var,
             dbl_x_val,
             dbl_y_val,
             base_x,
