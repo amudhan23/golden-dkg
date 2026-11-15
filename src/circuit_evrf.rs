@@ -7,8 +7,10 @@ use ark_relations::{
 pub fn bit_decompose<F: PrimeField>(
     cs: ConstraintSystemRef<F>,
     scalar: F,
-) -> Result<Vec<Variable>, SynthesisError> {
-    let bigint = scalar.into_bigint();
+    scalar_var: Variable,
+) -> Result<(Vec<Variable>, Vec<F>), SynthesisError> {
+    let bigint: <F as PrimeField>::BigInt = scalar.into_bigint();
+    let mut big_vec_var = Vec::with_capacity(256);
     let mut big_vec = Vec::with_capacity(256);
 
     for i in 0..256 {
@@ -20,13 +22,14 @@ pub fn bit_decompose<F: PrimeField>(
 
         let bit_var = cs.new_witness_variable(|| Ok(bit_val))?;
 
-        big_vec.push(bit_var);
+        big_vec.push(bit_val);
+        big_vec_var.push(bit_var);
     }
 
     for i in 0..256 {
         cs.enforce_constraint(
-            lc!() + big_vec[i],
-            lc!() + big_vec[i] - Variable::One,
+            lc!() + big_vec_var[i],
+            lc!() + big_vec_var[i] - Variable::One,
             lc!(),
         )?;
     }
@@ -36,13 +39,11 @@ pub fn bit_decompose<F: PrimeField>(
     let two = F::from(2u64);
 
     for i in 0..256 {
-        reconstruction = reconstruction + (coeff, big_vec[i]);
+        reconstruction = reconstruction + (coeff, big_vec_var[i]);
         coeff *= two;
     }
 
-    let k_var = cs.new_witness_variable(|| Ok(scalar))?;
+    cs.enforce_constraint(reconstruction, lc!() + Variable::One, lc!() + scalar_var)?;
 
-    cs.enforce_constraint(reconstruction, lc!() + Variable::One, lc!() + k_var)?;
-
-    Ok(big_vec)
+    Ok((big_vec_var, big_vec))
 }

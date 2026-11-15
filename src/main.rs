@@ -1,6 +1,7 @@
 mod add_gadget;
 mod bit_decompose_test;
 mod circuit_evrf;
+mod evrf_dh_circuit;
 mod scalar_mul;
 mod scalar_mul_test;
 
