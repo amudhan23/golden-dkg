@@ -6,23 +6,9 @@ mod tests {
     use ark_ec::twisted_edwards::TECurveConfig;
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ed_on_bls12_381_bandersnatch::{BandersnatchConfig, EdwardsAffine, Fq};
-    use ark_ff::{BigInteger, PrimeField, One, Zero};
+    use ark_ff::{PrimeField, One, Zero};
     use ark_relations::r1cs::ConstraintSystem;
     use ark_std::UniformRand;
-
-    /// Helper: extract bit values (as field elements) from a scalar, LSB first
-    fn bit_vals_from_scalar(scalar: Fq) -> Vec<Fq> {
-        let bigint = scalar.into_bigint();
-        (0..256)
-            .map(|i| {
-                if bigint.get_bit(i) {
-                    Fq::one()
-                } else {
-                    Fq::zero()
-                }
-            })
-            .collect()
-    }
 
     #[test]
     fn conditional_select_picks_first_when_bit_is_one() {
@@ -115,8 +101,8 @@ mod tests {
         let expected_affine: EdwardsAffine = expected.into_affine();
 
         // Bit decompose k
-        let bit_values = bit_vals_from_scalar(k);
-        let bits = bit_decompose(cs.clone(), k).unwrap();
+        let k_var = cs.new_witness_variable(|| Ok(k)).unwrap();
+        let (bits, bit_values) = bit_decompose(cs.clone(), k, k_var).unwrap();
 
         // Run scalar_mul
         let (_, _, result_x, result_y) =
@@ -169,8 +155,8 @@ mod tests {
         let base_x: Fq = generator.x;
         let base_y: Fq = generator.y;
 
-        let bit_values = bit_vals_from_scalar(k);
-        let bits = bit_decompose(cs.clone(), k).unwrap();
+        let k_var = cs.new_witness_variable(|| Ok(k)).unwrap();
+        let (bits, bit_values) = bit_decompose(cs.clone(), k, k_var).unwrap();
 
         let (_, _, result_x, result_y) =
             {
@@ -214,8 +200,8 @@ mod tests {
         let expected_affine: EdwardsAffine = expected.into_affine();
 
         // Circuit computation
-        let bit_values = bit_vals_from_scalar(k_fq);
-        let bits = bit_decompose(cs.clone(), k_fq).unwrap();
+        let k_var = cs.new_witness_variable(|| Ok(k_fq)).unwrap();
+        let (bits, bit_values) = bit_decompose(cs.clone(), k_fq, k_var).unwrap();
 
         let (_, _, result_x, result_y) =
             {
