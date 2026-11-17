@@ -125,11 +125,9 @@ mod tests {
 
         // ── Public parameters (deterministic, both sides derive them) ──
         let t = Instant::now();
-        let mut params = setup_params::<G1Projective>(n);
-        // TEMP until setup_params returns exactly n generators (it returns 2n,
-        // which breaks verify_ipa's halving). No-op once that is fixed.
-        params.g.truncate(n);
-        params.h.truncate(n);
+        let params = setup_params::<G1Projective>(n);
+        assert_eq!(params.g.len(), n);
+        assert_eq!(params.h.len(), n);
         println!("setup_params:  {:.2} s", t.elapsed().as_secs_f64());
 
         // ── Prove ──────────────────────────────────────────────────────
