@@ -16,7 +16,7 @@ mod tests {
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ed_on_bls12_381_bandersnatch::{BandersnatchConfig, EdwardsAffine, Fq, Fr as Scalar};
     use ark_ff::{One, PrimeField, Zero};
-    use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem, SynthesisMode};
+    use ark_relations::r1cs::{ConstraintMatrices, ConstraintSystem, SynthesisMode, Variable};
     use ark_std::UniformRand;
     use bulletproofs_ipa::protocol::{prove, verify};
     use bulletproofs_ipa::setup_params;
@@ -56,12 +56,12 @@ mod tests {
         public: &Public,
         sk1: Fq,
         mode: SynthesisMode,
-    ) -> (ConstraintMatrices<Fq>, Vec<Fq>, Vec<Fq>) {
+    ) -> (ConstraintMatrices<Fq>, Vec<Fq>, Vec<Fq>, usize) {
         let cs = ConstraintSystem::<Fq>::new_ref();
         cs.set_mode(mode);
         let a: Fq = BandersnatchConfig::COEFF_A;
         let d: Fq = BandersnatchConfig::COEFF_D;
-        evrf_dh(
+        let (r_var, _) = evrf_dh(
             cs.clone(),
             public.g.x, public.g.y,
             public.pk1.x, public.pk1.y,
@@ -76,7 +76,11 @@ mod tests {
         cs.finalize();
         let mats = cs.to_matrices().unwrap();
         let b = cs.borrow().unwrap();
-        (mats, b.instance_assignment.clone(), b.witness_assignment.clone())
+        let r_index = match r_var {
+            Variable::Witness(i) => i,
+            _ => panic!("r must be a witness variable"),
+        };
+        (mats, b.instance_assignment.clone(), b.witness_assignment.clone(), r_index)
     }
 
     #[test]
@@ -99,11 +103,11 @@ mod tests {
         };
 
         // ── Prover: Prove mode, real secret ────────────────────────────
-        let (mats_p, instance_p, witness) =
+        let (mats_p, instance_p, witness, r_index_p) =
             synthesize(&public, sk1_fq, SynthesisMode::Prove { construct_matrices: true });
 
         // ── Verifier: Setup mode, dummy secret, its own matrices ───────
-        let (mats_v, instance_setup, witness_setup) =
+        let (mats_v, instance_setup, witness_setup, r_index_v) =
             synthesize(&public, Fq::zero(), SynthesisMode::Setup);
         let instance_v = public.instance();
 
@@ -112,6 +116,7 @@ mod tests {
         assert_eq!(mats_v.b, mats_p.b, "verifier's B must equal prover's B");
         assert_eq!(mats_v.c, mats_p.c, "verifier's C must equal prover's C");
         assert_eq!(instance_v, instance_p, "verifier's instance must equal prover's");
+        assert_eq!(r_index_v, r_index_p, "verifier finds r at the same witness index");
         println!("setup-mode instance_assignment length: {}", instance_setup.len());
 
         let n = (mats_v.num_constraints + mats_v.num_witness_variables).next_power_of_two();
@@ -133,19 +138,27 @@ mod tests {
         // ── Prove ──────────────────────────────────────────────────────
         let t = Instant::now();
         let mut tp = Transcript::new(LABEL);
-        let proof = prove::<G1Projective>(&mats_p, &instance_p, &witness, &params, &mut rng, &mut tp);
+        let r = witness[r_index_p];
+        let proof = prove::<G1Projective>(
+            &mats_p, &instance_p, &witness, &params, &mut rng,
+            &[r_index_p], &[Fq::zero()], &mut tp,
+        );
+        // What the dealer posts on the board: R = r * g_out, with g_out = U.
+        let big_r = params.u * r;
         println!("prove:         {:.2} s", t.elapsed().as_secs_f64());
 
         // ── Verify (with the verifier's own matrices and instance) ─────
         let t = Instant::now();
         let mut tv = Transcript::new(LABEL);
-        let ok = verify::<G1Projective>(&mats_v, &instance_v, &params, &proof, &mut tv);
+        let ok = verify::<G1Projective>(
+            &mats_v, &instance_v, &params, &[r_index_v], &[big_r], &proof, &mut tv,
+        );
         println!("verify:        {:.2} s", t.elapsed().as_secs_f64());
         assert!(ok, "honest eVRF proof must verify");
 
         // ── Proof size: 8 points + 3 scalars + IPA (2 log n points + 2 scalars)
         let rounds = n.trailing_zeros() as usize;
-        let points = 8 + 2 * rounds;
+        let points = 8 + 2 * rounds; // R is posted separately, not part of the proof
         let scalars = 3 + 2;
         println!(
             "proof size:    {} G1 points + {} scalars = {} bytes (compressed)",
@@ -161,8 +174,16 @@ mod tests {
         wrong[4] = wrong_pk1.y;
         let mut tv = Transcript::new(LABEL);
         assert!(
-            !verify::<G1Projective>(&mats_v, &wrong, &params, &proof, &mut tv),
+            !verify::<G1Projective>(&mats_v, &wrong, &params, &[r_index_v], &[big_r], &proof, &mut tv),
             "proof must not verify against a different PK1"
+        );
+
+        // ── Negative: dealer posts R for a different r (the fake-R attack)
+        let fake_r = params.u * (r + Fq::one());
+        let mut tv = Transcript::new(LABEL);
+        assert!(
+            !verify::<G1Projective>(&mats_v, &instance_v, &params, &[r_index_v], &[fake_r], &proof, &mut tv),
+            "proof must not verify against an R for a different r"
         );
 
         // ── Negative: same proof, different beta ───────────────────────
@@ -170,7 +191,7 @@ mod tests {
         wrong[11] += Fq::one();
         let mut tv = Transcript::new(LABEL);
         assert!(
-            !verify::<G1Projective>(&mats_v, &wrong, &params, &proof, &mut tv),
+            !verify::<G1Projective>(&mats_v, &wrong, &params, &[r_index_v], &[big_r], &proof, &mut tv),
             "proof must not verify against a different beta"
         );
     }
