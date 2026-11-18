@@ -412,6 +412,7 @@ dependencies = [
  "ark-std",
  "bulletproofs_ipa",
  "merlin",
+ "sha2",
 ]
 
 [[package]]
