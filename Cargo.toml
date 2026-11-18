@@ -12,6 +12,8 @@ ark-bls12-381 = "0.5"
 ark-ed-on-bls12-381-bandersnatch = "0.5"
 ark-std = "0.5"
 ark-serialize = "0.5"
+merlin = "3.0.0"
+
 bulletproofs_ipa = { git = "https://github.com/amudhan23/bulletProofRust", branch = "master" }
 
 [dev-dependencies]
