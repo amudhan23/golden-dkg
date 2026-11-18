@@ -266,7 +266,7 @@ dependencies = [
 [[package]]
 name = "bulletproofs_ipa"
 version = "0.1.0"
-source = "git+https://github.com/amudhan23/bulletProofRust?branch=master#c3cebdc0c5c3e2da1a4638dde78f080bb0fc78f2"
+source = "git+https://github.com/amudhan23/bulletProofRust?branch=master#3662a8b28c745146e440312d797c3c9dcada7042"
 dependencies = [
  "ark-bls12-381",
  "ark-crypto-primitives",
