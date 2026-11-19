@@ -185,20 +185,79 @@ pub fn evaluate(
     (r, R, EvrfProof { bp: bp_proof, pok })
 }
 
-// pub fn evrf_dh<F: PrimeField>(
-//     cs: ConstraintSystemRef<F>,
-//     g_in_x: F,
-//     g_in_y: F,
-//     pk1_x: F,
-//     pk1_y: F,
-//     pk2_x: F,
-//     pk2_y: F,
-//     h1_x: F,
-//     h1_y: F,
-//     h2_x: F,
-//     h2_y: F,
-//     beta: F,
-//     witness: F,
-//     a: F,
-//     d: F,
-// )
+pub fn verify(
+    params: &EvrfParams,
+    pk: &EdwardsAffine,
+    other_pk: &EdwardsAffine,
+    msg: &[u8],
+    big_r: G1Projective,
+    proof: &EvrfProof,
+) -> bool {
+    for p in [pk, other_pk] {
+        if !p.is_on_curve() || !p.is_in_correct_subgroup_assuming_on_curve() {
+            return false;
+        }
+    }
+
+    let (h1, h2) = hash_points(msg, pk, other_pk);
+
+    let cs = ConstraintSystem::<Fq>::new_ref();
+    cs.set_mode(SynthesisMode::Setup);
+    let (r_var, r) = evrf_dh(
+        cs.clone(),
+        Fq::zero(),
+        Fq::one(), // g_in      (dummy point: the identity (0, 1))
+        Fq::zero(),
+        Fq::one(), // PK₁
+        Fq::zero(),
+        Fq::one(), // PK₂
+        Fq::zero(),
+        Fq::one(), // H₁
+        Fq::zero(),
+        Fq::one(),  // H₂
+        Fq::zero(), // β
+        Fq::zero(), // sk (dummy)
+        BandersnatchConfig::COEFF_A,
+        BandersnatchConfig::COEFF_D,
+    )
+    .unwrap();
+
+    let mut transcript = Transcript::new(b"unit-golden");
+
+    let r_index = match r_var {
+        Variable::Witness(i) => i,
+        _ => panic!("r must be a witness variable"),
+    };
+
+    cs.finalize();
+    let mats = cs.to_matrices().unwrap();
+
+    let instance = vec![
+        Fq::one(),
+        params.g_in.x,
+        params.g_in.y,
+        pk.x,
+        pk.y,
+        other_pk.x,
+        other_pk.y,
+        h1.x,
+        h1.y,
+        h2.x,
+        h2.y,
+        params.beta,
+    ];
+
+    let bp_proof_bool = bulletproofs_ipa::protocol::verify(
+        &mats,
+        &instance,
+        &params.bp,
+        &[r_index],
+        &[big_r],
+        &proof.bp,
+        &mut transcript,
+    );
+
+    let schnorr_proof_bool = schnorr::verify(&proof.pok, params.bp.u, big_r, &mut transcript);
+
+    bp_proof_bool && schnorr_proof_bool
+}
