@@ -68,16 +68,14 @@ mod tests {
 
     /// Alice -> Bob and Bob -> Alice must produce the SAME pad r (DH symmetry +
     /// sorted hash inputs), R must equal r*U, and Alice's proofs must verify
-    /// against her R. Slow (two proofs, ~4 min):
+    /// against her R via `verify`, and wrong R / swapped keys / wrong msg /
+    /// non-subgroup key are rejected. Slow (~9 min):
     ///     cargo test --release evaluate_both_sides -- --ignored --nocapture
     #[test]
     #[ignore]
     fn evaluate_both_sides_agree_and_proofs_verify() {
         use crate::evrf::evaluate;
-        use crate::schnorr;
         use ark_ed_on_bls12_381_bandersnatch::Fq;
-        use ark_relations::r1cs::{ConstraintSystem, SynthesisMode, Variable};
-        use merlin::Transcript;
         use std::time::Instant;
 
         let params = setup_evrf();
@@ -98,43 +96,27 @@ mod tests {
         assert_eq!(big_r_ab, big_r_ba);
         assert_eq!(big_r_ab, params.bp.u * r_ab, "R must be r * U");
 
-        // Verifier side (a preview of `verify`): own matrices in Setup mode.
-        let (h1, h2) = hash_points(msg, &pk_a, &pk_b);
-        let cs = ConstraintSystem::<Fq>::new_ref();
-        cs.set_mode(SynthesisMode::Setup);
-        let (r_var, _) = crate::evrf_dh_circuit::evrf_dh(
-            cs.clone(),
-            params.g_in.x, params.g_in.y,
-            pk_a.x, pk_a.y,
-            pk_b.x, pk_b.y,
-            h1.x, h1.y,
-            h2.x, h2.y,
-            params.beta,
-            Fq::from(0u64),
-            params.a, params.d,
-        )
-        .unwrap();
-        cs.finalize();
-        let mats = cs.to_matrices().unwrap();
-        let r_index = match r_var { Variable::Witness(i) => i, _ => panic!() };
-        let instance = vec![
-            Fq::from(1u64),
-            params.g_in.x, params.g_in.y,
-            pk_a.x, pk_a.y,
-            pk_b.x, pk_b.y,
-            h1.x, h1.y,
-            h2.x, h2.y,
-            params.beta,
-        ];
+        use crate::evrf::verify;
 
         let t = Instant::now();
-        let mut tr = Transcript::new(b"unit-golden");
-        let bp_ok = bulletproofs_ipa::protocol::verify(
-            &mats, &instance, &params.bp, &[r_index], &[big_r_ab], &proof_ab.bp, &mut tr,
-        );
-        let pok_ok = schnorr::verify(&proof_ab.pok, params.bp.u, big_r_ab, &mut tr);
-        println!("verify (Bulletproof + Schnorr): {:.1} s", t.elapsed().as_secs_f64());
-        assert!(bp_ok, "Alice's Bulletproof must verify against her R");
-        assert!(pok_ok, "Alice's Schnorr proof for R must verify");
+        let ok = verify(&params, &pk_a, &pk_b, msg, big_r_ab, &proof_ab);
+        println!("verify: {:.1} s", t.elapsed().as_secs_f64());
+        assert!(ok, "Alice's eVRF proof must verify against her R");
+
+        // ── Rejections ──
+        // The fake-R attack: an R for a different pad.
+        let fake_r = params.bp.u * (r_ab + Fq::from(1u64));
+        assert!(!verify(&params, &pk_a, &pk_b, msg, fake_r, &proof_ab), "wrong R must fail");
+
+        // Roles swapped: the proof says Alice is the prover (PK1 = pk_a).
+        assert!(!verify(&params, &pk_b, &pk_a, msg, big_r_ab, &proof_ab), "swapped keys must fail");
+
+        // Different session message -> different H1, H2.
+        assert!(!verify(&params, &pk_a, &pk_b, b"session-2", big_r_ab, &proof_ab), "wrong msg must fail");
+
+        // A key outside the prime-order subgroup: (0, -1) is on the curve with order 2.
+        let bad = EdwardsAffine::new_unchecked(Fq::from(0u64), -Fq::from(1u64));
+        assert!(bad.is_on_curve() && !bad.is_in_correct_subgroup_assuming_on_curve());
+        assert!(!verify(&params, &bad, &pk_b, msg, big_r_ab, &proof_ab), "non-subgroup key must fail");
     }
 }
