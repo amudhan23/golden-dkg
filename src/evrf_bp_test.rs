@@ -37,17 +37,11 @@ mod tests {
 
     impl Public {
         /// The instance vector in the exact order `evrf_dh` allocates its
-        /// public inputs: [1, g, PK1, PK2, H1, H2, beta].
+        /// public inputs: [1, PK1, beta].
         fn instance(&self) -> Vec<Fq> {
-            vec![
-                Fq::one(),
-                self.g.x, self.g.y,
-                self.pk1.x, self.pk1.y,
-                self.pk2.x, self.pk2.y,
-                self.h1.x, self.h1.y,
-                self.h2.x, self.h2.y,
-                self.beta,
-            ]
+            // The bases (g, PK2, H1, H2) are now coefficients in the matrices;
+            // only PK1 and beta remain public inputs.
+            vec![Fq::one(), self.pk1.x, self.pk1.y, self.beta]
         }
     }
 
@@ -170,8 +164,8 @@ mod tests {
         // ── Negative: same proof, verifier claims a different PK1 ──────
         let mut wrong = public.instance();
         let wrong_pk1 = (public.pk1 + public.g).into_affine();
-        wrong[3] = wrong_pk1.x;
-        wrong[4] = wrong_pk1.y;
+        wrong[1] = wrong_pk1.x;
+        wrong[2] = wrong_pk1.y;
         let mut tv = Transcript::new(LABEL);
         assert!(
             !verify::<G1Projective>(&mats_v, &wrong, &params, &[r_index_v], &[big_r], &proof, &mut tv),
@@ -188,7 +182,7 @@ mod tests {
 
         // ── Negative: same proof, different beta ───────────────────────
         let mut wrong = public.instance();
-        wrong[11] += Fq::one();
+        wrong[3] += Fq::one();
         let mut tv = Transcript::new(LABEL);
         assert!(
             !verify::<G1Projective>(&mats_v, &wrong, &params, &[r_index_v], &[big_r], &proof, &mut tv),

@@ -61,8 +61,8 @@ mod tests {
         assert_eq!(p1.g_in, EdwardsAffine::generator());
         assert_eq!(p1.a, BandersnatchConfig::COEFF_A);
         assert_eq!(p1.d, BandersnatchConfig::COEFF_D);
-        // 16,909 constraints + 16,906 witness variables -> 65,536 gates
-        assert_eq!(p1.bp.n, 65_536);
+        // fixed-base circuit: ~5.6k constraints + ~5.6k witness variables -> 16,384 gates
+        assert_eq!(p1.bp.n, 16_384);
         assert_eq!(p1.bp.g.len(), p1.bp.n);
     }
 
