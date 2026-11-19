@@ -205,20 +205,20 @@ pub fn verify(
     cs.set_mode(SynthesisMode::Setup);
     let (r_var, r) = evrf_dh(
         cs.clone(),
+        params.g_in.x,
+        params.g_in.y,
+        pk.x,
+        pk.y,
+        other_pk.x,
+        other_pk.y,
+        h1.x,
+        h1.y,
+        h2.x,
+        h2.y,
+        params.beta,
         Fq::zero(),
-        Fq::one(), // g_in      (dummy point: the identity (0, 1))
-        Fq::zero(),
-        Fq::one(), // PK₁
-        Fq::zero(),
-        Fq::one(), // PK₂
-        Fq::zero(),
-        Fq::one(), // H₁
-        Fq::zero(),
-        Fq::one(),  // H₂
-        Fq::zero(), // β
-        Fq::zero(), // sk (dummy)
-        BandersnatchConfig::COEFF_A,
-        BandersnatchConfig::COEFF_D,
+        params.a,
+        params.d,
     )
     .unwrap();
 
@@ -232,20 +232,7 @@ pub fn verify(
     cs.finalize();
     let mats = cs.to_matrices().unwrap();
 
-    let instance = vec![
-        Fq::one(),
-        params.g_in.x,
-        params.g_in.y,
-        pk.x,
-        pk.y,
-        other_pk.x,
-        other_pk.y,
-        h1.x,
-        h1.y,
-        h2.x,
-        h2.y,
-        params.beta,
-    ];
+    let instance = vec![Fq::one(), pk.x, pk.y, params.beta];
 
     let bp_proof_bool = bulletproofs_ipa::protocol::verify(
         &mats,
