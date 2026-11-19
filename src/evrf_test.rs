@@ -65,4 +65,76 @@ mod tests {
         assert_eq!(p1.bp.n, 65_536);
         assert_eq!(p1.bp.g.len(), p1.bp.n);
     }
+
+    /// Alice -> Bob and Bob -> Alice must produce the SAME pad r (DH symmetry +
+    /// sorted hash inputs), R must equal r*U, and Alice's proofs must verify
+    /// against her R. Slow (two proofs, ~4 min):
+    ///     cargo test --release evaluate_both_sides -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn evaluate_both_sides_agree_and_proofs_verify() {
+        use crate::evrf::evaluate;
+        use crate::schnorr;
+        use ark_ed_on_bls12_381_bandersnatch::Fq;
+        use ark_relations::r1cs::{ConstraintSystem, SynthesisMode, Variable};
+        use merlin::Transcript;
+        use std::time::Instant;
+
+        let params = setup_evrf();
+        let mut rng = ark_std::test_rng();
+        let g = EdwardsAffine::generator();
+        let sk_a = Scalar::rand(&mut rng);
+        let sk_b = Scalar::rand(&mut rng);
+        let pk_a = (g * sk_a).into_affine();
+        let pk_b = (g * sk_b).into_affine();
+        let msg = b"session-1";
+
+        let t = Instant::now();
+        let (r_ab, big_r_ab, proof_ab) = evaluate(&params, sk_a, &pk_a, &pk_b, msg, &mut rng);
+        println!("evaluate (Alice -> Bob): {:.1} s", t.elapsed().as_secs_f64());
+        let (r_ba, big_r_ba, _) = evaluate(&params, sk_b, &pk_b, &pk_a, msg, &mut rng);
+
+        assert_eq!(r_ab, r_ba, "both parties must derive the same pad r");
+        assert_eq!(big_r_ab, big_r_ba);
+        assert_eq!(big_r_ab, params.bp.u * r_ab, "R must be r * U");
+
+        // Verifier side (a preview of `verify`): own matrices in Setup mode.
+        let (h1, h2) = hash_points(msg, &pk_a, &pk_b);
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        cs.set_mode(SynthesisMode::Setup);
+        let (r_var, _) = crate::evrf_dh_circuit::evrf_dh(
+            cs.clone(),
+            params.g_in.x, params.g_in.y,
+            pk_a.x, pk_a.y,
+            pk_b.x, pk_b.y,
+            h1.x, h1.y,
+            h2.x, h2.y,
+            params.beta,
+            Fq::from(0u64),
+            params.a, params.d,
+        )
+        .unwrap();
+        cs.finalize();
+        let mats = cs.to_matrices().unwrap();
+        let r_index = match r_var { Variable::Witness(i) => i, _ => panic!() };
+        let instance = vec![
+            Fq::from(1u64),
+            params.g_in.x, params.g_in.y,
+            pk_a.x, pk_a.y,
+            pk_b.x, pk_b.y,
+            h1.x, h1.y,
+            h2.x, h2.y,
+            params.beta,
+        ];
+
+        let t = Instant::now();
+        let mut tr = Transcript::new(b"unit-golden");
+        let bp_ok = bulletproofs_ipa::protocol::verify(
+            &mats, &instance, &params.bp, &[r_index], &[big_r_ab], &proof_ab.bp, &mut tr,
+        );
+        let pok_ok = schnorr::verify(&proof_ab.pok, params.bp.u, big_r_ab, &mut tr);
+        println!("verify (Bulletproof + Schnorr): {:.1} s", t.elapsed().as_secs_f64());
+        assert!(bp_ok, "Alice's Bulletproof must verify against her R");
+        assert!(pok_ok, "Alice's Schnorr proof for R must verify");
+    }
 }
