@@ -270,7 +270,7 @@ dependencies = [
 [[package]]
 name = "bulletproofs_ipa"
 version = "0.1.0"
-source = "git+https://github.com/amudhan23/bulletProofRust?branch=master#d312fada0abfb77fb1e3304d48acad43566a7903"
+source = "git+https://github.com/amudhan23/bulletProofRust?branch=master#5bcc0f299bb39d3538ba9eadb4e86398db65424a"
 dependencies = [
  "ark-bls12-381",
  "ark-crypto-primitives",
@@ -281,6 +281,7 @@ dependencies = [
  "ark-serialize",
  "ark-std",
  "merlin",
+ "rayon",
  "sha2",
 ]
 
