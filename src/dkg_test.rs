@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::dkg::round0;
-    use crate::evrf::{setup_evrf, verify, EvrfParams};
-    use crate::feldman::{compute_r, share_commitment, verify_share};
+    use crate::evrf::{compute_r, setup_evrf, verify, EvrfParams};
+    use crate::feldman::{share_commitment, verify_share};
 
     use ark_ec::{AffineRepr, CurveGroup};
     use ark_ed_on_bls12_381_bandersnatch::{EdwardsAffine, Fr as Scalar};

@@ -61,8 +61,8 @@ mod tests {
         assert_eq!(p1.g_in, EdwardsAffine::generator());
         assert_eq!(p1.a, BandersnatchConfig::COEFF_A);
         assert_eq!(p1.d, BandersnatchConfig::COEFF_D);
-        // fixed-base circuit: ~5.6k constraints + ~5.6k witness variables -> 16,384 gates
-        assert_eq!(p1.bp.n, 16_384);
+        // Weierstrass circuit: ~3.6k constraints + ~3.6k witness variables -> 8,192 gates (paper: 2^13)
+        assert_eq!(p1.bp.n, 8_192);
         assert_eq!(p1.bp.g.len(), p1.bp.n);
     }
 
@@ -118,5 +118,50 @@ mod tests {
         let bad = EdwardsAffine::new_unchecked(Fq::from(0u64), -Fq::from(1u64));
         assert!(bad.is_on_curve() && !bad.is_in_correct_subgroup_assuming_on_curve());
         assert!(!verify(&params, &bad, &pk_b, msg, big_r_ab, &proof_ab), "non-subgroup key must fail");
+    }
+
+    /// Numbers for the comparison with the paper's Table 4 (Weierstrass circuit).
+    ///     cargo test --release evrf_sw_benchmark -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn evrf_sw_benchmark() {
+        use crate::evrf::{evaluate, verify};
+        use crate::evrf_dh_circuit::evrf_dh_sw;
+        use ark_ed_on_bls12_381_bandersnatch::Fq;
+        use ark_relations::r1cs::{ConstraintSystem, SynthesisMode};
+        use std::time::Instant;
+
+        let t = Instant::now();
+        let params = setup_evrf();
+        let setup_s = t.elapsed().as_secs_f64();
+
+        let g = EdwardsAffine::generator();
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        cs.set_mode(SynthesisMode::Setup);
+        evrf_dh_sw(cs.clone(), &g, &g, &g, &g, &g, &params.h_c, params.beta, Fq::from(1u64)).unwrap();
+        let (m, w) = (cs.num_constraints(), cs.num_witness_variables());
+
+        let mut rng = ark_std::test_rng();
+        let (sk_a, sk_b) = (Scalar::rand(&mut rng), Scalar::rand(&mut rng));
+        let (pk_a, pk_b) = ((g * sk_a).into_affine(), (g * sk_b).into_affine());
+
+        let t = Instant::now();
+        let (_, big_r, proof) = evaluate(&params, sk_a, &pk_a, &pk_b, b"bench", &mut rng);
+        let prove_s = t.elapsed().as_secs_f64();
+        let t = Instant::now();
+        assert!(verify(&params, &pk_a, &pk_b, b"bench", big_r, &proof));
+        let verify_s = t.elapsed().as_secs_f64();
+
+        let rounds = params.bp.n.trailing_zeros() as usize;
+        let bp_bytes = (8 + 2 * rounds) * 48 + 5 * 32;
+        let schnorr_bytes = 48 + 32;
+        println!("threads available: {}", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
+        println!("constraints:  {m}   (paper: 3,598)");
+        println!("witness vars: {w}");
+        println!("n (gates):    {}   (paper: 8,192)", params.bp.n);
+        println!("setup:        {setup_s:.2} s");
+        println!("prove:        {prove_s:.2} s   (paper estimate: 0.3 s on 8 vCPUs)");
+        println!("verify:       {verify_s:.2} s   (paper estimate: 0.1 s)");
+        println!("proof:        {bp_bytes} B Bulletproof + {schnorr_bytes} B Schnorr   (paper: ~1.5 KB)");
     }
 }
