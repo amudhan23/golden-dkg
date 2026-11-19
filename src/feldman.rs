@@ -52,18 +52,3 @@ pub fn share_commitment(commitments: &[G1Projective], k: u64) -> G1Projective {
 pub fn verify_share(commitments: &[G1Projective], k: u64, share: Fr, g: G1Projective) -> bool {
     g * share == share_commitment(commitments, k)
 }
-
-pub fn compute_r(
-    params: &EvrfParams,
-    sk: Scalar,
-    my_pk: &EdwardsAffine,
-    other_pk: &EdwardsAffine,
-    msg: &[u8],
-) -> Fq {
-    let (h1, h2) = hash_points(msg, my_pk, other_pk);
-    let S = (*other_pk * sk).into_affine();
-    let k = S.x.into_bigint();
-    let T1 = h1.mul_bigint(k).into_affine();
-    let T2 = h2.mul_bigint(k).into_affine();
-    return params.beta * T1.x + T2.x;
-}

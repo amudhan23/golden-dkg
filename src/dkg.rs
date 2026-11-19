@@ -111,7 +111,7 @@ pub fn round1(
     for d in dealings.iter().filter(|d| d.dealer != i) {
         let j = d.dealer as usize;
         let e = d.entries.iter().find(|e| e.recipient == i)?;
-        let r = feldman::compute_r(params, sk_i, &pks[i_us - 1], &pks[j - 1], &d.msg);
+        let r = crate::evrf::compute_r(params, sk_i, &pks[i_us - 1], &pks[j - 1], &d.msg);
         sk += e.z - r;
     }
 

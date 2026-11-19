@@ -19,7 +19,8 @@ use bulletproofs_ipa::protocol;
 use merlin::Transcript;
 use sha2::{Digest, Sha256};
 
-use crate::evrf_dh_circuit::evrf_dh;
+use crate::evrf_dh_circuit::evrf_dh_sw;
+use crate::sw::point_to_sw;
 use crate::schnorr;
 use crate::schnorr::SchnorrProof; // your trait: append_point, append_scalar, get_challenge
 
@@ -77,35 +78,24 @@ pub struct EvrfParams {
     pub a: Fq,
     pub d: Fq,
     pub beta: Fq,
+    /// Independent generator for the §5.3 correction points.
+    pub h_c: EdwardsAffine,
 }
 
 pub fn setup_evrf() -> EvrfParams {
+    let g_in = EdwardsAffine::generator();
+    let h_c = hash_to_curve::<EdwardsProjective>(b"golden_dkg/evrf/h_c", b"").into_affine();
+    let beta = Fq::from_le_bytes_mod_order(&Sha256::digest(b"golden_dkg/evrf/beta"));
+
+    // Count gates with dummy values: the structure doesn't depend on them.
+    // (Weierstrass can't represent the identity, so use real points and sk = 1.)
     let cs = ConstraintSystem::<Fq>::new_ref();
     cs.set_mode(SynthesisMode::Setup);
-    evrf_dh(
-        cs.clone(),
-        Fq::zero(),
-        Fq::one(), // g_in      (dummy point: the identity (0, 1))
-        Fq::zero(),
-        Fq::one(), // PK₁
-        Fq::zero(),
-        Fq::one(), // PK₂
-        Fq::zero(),
-        Fq::one(), // H₁
-        Fq::zero(),
-        Fq::one(),  // H₂
-        Fq::zero(), // β
-        Fq::zero(), // sk (dummy)
-        BandersnatchConfig::COEFF_A,
-        BandersnatchConfig::COEFF_D,
-    )
-    .unwrap();
+    evrf_dh_sw(cs.clone(), &g_in, &g_in, &g_in, &g_in, &g_in, &h_c, beta, Fq::one()).unwrap();
     let n = (cs.num_constraints() + cs.num_witness_variables()).next_power_of_two();
     let bp = bulletproofs_ipa::setup_params(n);
-    let g_in = EdwardsAffine::generator();
     let a = BandersnatchConfig::COEFF_A;
     let d = BandersnatchConfig::COEFF_D;
-    let beta = Fq::from_le_bytes_mod_order(&Sha256::digest(b"golden_dkg/evrf/beta"));
 
     EvrfParams {
         bp,
@@ -113,6 +103,7 @@ pub fn setup_evrf() -> EvrfParams {
         a,
         d,
         beta,
+        h_c,
     }
 }
 
@@ -133,22 +124,16 @@ pub fn evaluate(
     let sk_fq = Fq::from_bigint(sk.into_bigint().into()).unwrap();
     let cs = ConstraintSystem::<Fq>::new_ref();
 
-    let (r_var, r) = evrf_dh(
+    let (r_var, r) = evrf_dh_sw(
         cs.clone(),
-        params.g_in.x,
-        params.g_in.y,
-        my_pk.x,
-        my_pk.y,
-        other_pk.x,
-        other_pk.y,
-        h1.x,
-        h1.y,
-        h2.x,
-        h2.y,
+        &params.g_in,
+        my_pk,
+        other_pk,
+        &h1,
+        &h2,
+        &params.h_c,
         params.beta,
         sk_fq,
-        params.a,
-        params.d,
     )
     .unwrap();
 
@@ -203,22 +188,16 @@ pub fn verify(
 
     let cs = ConstraintSystem::<Fq>::new_ref();
     cs.set_mode(SynthesisMode::Setup);
-    let (r_var, r) = evrf_dh(
+    let (r_var, _) = evrf_dh_sw(
         cs.clone(),
-        params.g_in.x,
-        params.g_in.y,
-        pk.x,
-        pk.y,
-        other_pk.x,
-        other_pk.y,
-        h1.x,
-        h1.y,
-        h2.x,
-        h2.y,
+        &params.g_in,
+        pk,
+        other_pk,
+        &h1,
+        &h2,
+        &params.h_c,
         params.beta,
-        Fq::zero(),
-        params.a,
-        params.d,
+        Fq::one(), // dummy sk: only the structure matters in Setup mode
     )
     .unwrap();
 
@@ -232,7 +211,8 @@ pub fn verify(
     cs.finalize();
     let mats = cs.to_matrices().unwrap();
 
-    let instance = vec![Fq::one(), pk.x, pk.y, params.beta];
+    let (pk_x, pk_y) = point_to_sw(pk);
+    let instance = vec![Fq::one(), pk_x, pk_y, params.beta];
 
     let bp_proof_bool = bulletproofs_ipa::protocol::verify(
         &mats,
@@ -247,4 +227,22 @@ pub fn verify(
     let schnorr_proof_bool = schnorr::verify(&proof.pok, params.bp.u, big_r, &mut transcript);
 
     bp_proof_bool && schnorr_proof_bool
+}
+
+/// The pad r without a proof (Figure 4, Round 1, line 11: decryption doesn't
+/// need R or π). Native arithmetic matching `evrf_dh_sw` exactly: S.X, T1.X and
+/// T2.X are Weierstrass x-coordinates.
+pub fn compute_r(
+    params: &EvrfParams,
+    sk: Scalar,
+    my_pk: &EdwardsAffine,
+    other_pk: &EdwardsAffine,
+    msg: &[u8],
+) -> Fq {
+    let (h1, h2) = hash_points(msg, my_pk, other_pk);
+    let s = (*other_pk * sk).into_affine();
+    let k = point_to_sw(&s).0.into_bigint();
+    let t1 = h1.mul_bigint(k).into_affine();
+    let t2 = h2.mul_bigint(k).into_affine();
+    params.beta * point_to_sw(&t1).0 + point_to_sw(&t2).0
 }
