@@ -14,6 +14,8 @@ mod scalar_mul;
 mod scalar_mul_test;
 mod schnorr;
 mod schnorr_test;
+mod sw;
+mod sw_test;
 
 fn main() {
     println!("Hello, world!");
