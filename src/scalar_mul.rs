@@ -4,7 +4,7 @@ use ark_relations::{
     r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError, Variable},
 };
 
-use crate::add_gadget::edwards_add;
+use crate::add_gadget::{edwards_add, edwards_add_native, edwards_add_newConstraint};
 
 pub fn scalar_mul<F: PrimeField>(
     cs: ConstraintSystemRef<F>,
@@ -102,4 +102,59 @@ pub fn conditional_select<F: PrimeField>(
     cs.enforce_constraint(lc!() + bit, lc!() + y_t - y_a, lc!() + out_y_var - y_a)?;
 
     Ok((out_x_var, out_y_var, out_x_val, out_y_val))
+}
+
+pub fn scalar_mul_fixed<F: PrimeField>(
+    cs: ConstraintSystemRef<F>,
+    bits: &[Variable],
+    bit_vals: &[F], // from bit_decompose (LSB first)
+    base_x: F,
+    base_y: F, // the public base as plain VALUES, not variables
+    a: F,
+    d: F,
+) -> Result<(Variable, Variable, F, F), SynthesisError> {
+    let mut base_powers = Vec::new();
+    let mut current_base = (base_x, base_y);
+    let (mut acc_x, mut acc_y) = (F::zero(), F::one());
+    let (mut acc_x_var, mut acc_y_var) = (
+        cs.new_witness_variable(|| Ok(acc_x))?,
+        cs.new_witness_variable(|| Ok(acc_y))?,
+    );
+
+    cs.enforce_constraint(lc!() + acc_x_var, lc!() + Variable::One, lc!())?;
+    cs.enforce_constraint(
+        lc!() + acc_y_var,
+        lc!() + Variable::One,
+        lc!() + Variable::One,
+    )?;
+
+    for i in bit_vals {
+        base_powers.push((current_base.0, current_base.1));
+        (current_base.0, current_base.1) = edwards_add_native(
+            current_base.0,
+            current_base.1,
+            current_base.0,
+            current_base.1,
+            a,
+            d,
+        );
+    }
+
+    for i in 0..bit_vals.len() {
+        (acc_x_var, acc_y_var, acc_x, acc_y) = edwards_add_newConstraint(
+            cs.clone(),
+            acc_x_var,
+            acc_y_var,
+            acc_x,
+            acc_y,
+            base_powers[i].0,
+            base_powers[i].1,
+            bit_vals[i],
+            bits[i],
+            a,
+            d,
+        )?;
+    }
+
+    Ok((acc_x_var, acc_y_var, acc_x, acc_y))
 }
