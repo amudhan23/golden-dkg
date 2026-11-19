@@ -223,4 +223,70 @@ mod tests {
             cs.num_constraints()
         );
     }
+
+    // ── scalar_mul_fixed: precomputed public base, 5 constraints per bit ──
+
+    fn fixed_mul_check(k_scalar: ark_ed_on_bls12_381_bandersnatch::Fr) -> (bool, bool, usize) {
+        use crate::scalar_mul::scalar_mul_fixed;
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        let a: Fq = BandersnatchConfig::COEFF_A;
+        let d: Fq = BandersnatchConfig::COEFF_D;
+        let g: EdwardsAffine = BandersnatchConfig::GENERATOR;
+        let k = Fq::from_bigint(k_scalar.into_bigint().into()).unwrap();
+        let k_var = cs.new_witness_variable(|| Ok(k)).unwrap();
+        let (bits, bit_vals) = bit_decompose(cs.clone(), k, k_var).unwrap();
+        let before = cs.num_constraints();
+        let (_, _, rx, ry) = scalar_mul_fixed(cs.clone(), &bits, &bit_vals, g.x, g.y, a, d).unwrap();
+        let used = cs.num_constraints() - before;
+        let expected = (EdwardsAffine::generator() * k_scalar).into_affine();
+        let matches = rx == expected.x && ry == expected.y;
+        (matches, cs.is_satisfied().unwrap(), used)
+    }
+
+    #[test]
+    fn scalar_mul_fixed_small_scalars() {
+        use ark_ed_on_bls12_381_bandersnatch::Fr as S;
+        for k in [0u64, 1, 2, 3, 42, 1 << 40] {
+            let (matches, sat, _) = fixed_mul_check(S::from(k));
+            assert!(matches, "k = {k}: result doesn't match native k*G");
+            assert!(sat, "k = {k}: constraints not satisfied");
+        }
+    }
+
+    #[test]
+    fn scalar_mul_fixed_random_scalars() {
+        use ark_ed_on_bls12_381_bandersnatch::Fr as S;
+        let mut rng = ark_std::test_rng();
+        for _ in 0..3 {
+            let (matches, sat, _) = fixed_mul_check(S::rand(&mut rng));
+            assert!(matches, "random k: result doesn't match native k*G");
+            assert!(sat, "random k: constraints not satisfied");
+        }
+    }
+
+    #[test]
+    fn scalar_mul_fixed_costs_5_per_bit() {
+        use ark_ed_on_bls12_381_bandersnatch::Fr as S;
+        let (_, _, used) = fixed_mul_check(S::from(42u64));
+        assert_eq!(used, 5 * 256 + 2, "expected 5 constraints per bit + 2 for the identity");
+    }
+
+    #[test]
+    fn scalar_mul_fixed_tampered_output_fails() {
+        use crate::scalar_mul::scalar_mul_fixed;
+        use ark_relations::r1cs::Variable;
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        let a: Fq = BandersnatchConfig::COEFF_A;
+        let d: Fq = BandersnatchConfig::COEFF_D;
+        let g: EdwardsAffine = BandersnatchConfig::GENERATOR;
+        let k = Fq::from(42u64);
+        let k_var = cs.new_witness_variable(|| Ok(k)).unwrap();
+        let (bits, bit_vals) = bit_decompose(cs.clone(), k, k_var).unwrap();
+        let (x_var, _, _, _) = scalar_mul_fixed(cs.clone(), &bits, &bit_vals, g.x, g.y, a, d).unwrap();
+        match x_var {
+            Variable::Witness(i) => cs.borrow_mut().unwrap().witness_assignment[i] += Fq::one(),
+            _ => panic!(),
+        }
+        assert!(!cs.is_satisfied().unwrap(), "a tampered output must break the constraints");
+    }
 }
