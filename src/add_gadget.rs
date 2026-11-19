@@ -97,11 +97,11 @@ pub fn edwards_add_newConstraint<F: PrimeField>(
     )?;
 
     let denom_x = F::one() + d * p;
-    let x3_val = x1_val + (y2_val - F::one()) * m1 + x2_val * m2 * denom_x.inverse().unwrap();
+    let x3_val = (x1_val + (y2_val - F::one()) * m1 + x2_val * m2) * denom_x.inverse().unwrap();
     let x3 = cs.new_witness_variable(|| Ok(x3_val))?;
 
     let denom_y = F::one() - d * p;
-    let y3_val = y1_val + (y2_val - F::one()) * m2 - a * x2_val * m1 * denom_y.inverse().unwrap();
+    let y3_val = (y1_val + (y2_val - F::one()) * m2 - a * x2_val * m1) * denom_y.inverse().unwrap();
     let y3 = cs.new_witness_variable(|| Ok(y3_val))?;
 
     cs.enforce_constraint(
